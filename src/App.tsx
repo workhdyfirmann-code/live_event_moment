@@ -67,12 +67,16 @@ function GuestPage() {
   const pick = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || [])
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4']
+    if (files.length + selected.length > 10) return setError('Maksimal 10 foto atau video per batch.')
     const invalid = selected.find(file => !allowed.includes(file.type) || file.size > 25 * 1024 * 1024)
     if (invalid) return setError(`${invalid.name} tidak didukung atau melebihi 25 MB.`)
     setError('')
     setFiles(current => [...current, ...selected.map(file => ({ file, url: URL.createObjectURL(file) }))])
     event.target.value = ''
   }
+
+  const totalSize = files.reduce((total, item) => total + item.file.size, 0)
+  const formatSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
   useEffect(() => { const refresh = () => fetchMedia(true).then(setGallery).catch(err => diagnosticError('GALLERY_FETCH_ERROR', err, { eventId: EVENT_ID })); refresh(); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
 
@@ -122,7 +126,7 @@ function GuestPage() {
          <input ref={input} className="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={pick}/>
          <input ref={cameraInput} className="file-input" type="file" accept="image/*" capture="environment" onChange={pick}/>
          {!files.length ? <div className="upload-options"><button className="dropzone" onClick={() => input.current?.click()}><span className="upload-icon"><Icon name="upload" size={25}/></span><strong>Pilih dari galeri</strong><small>JPG, PNG, WEBP atau MP4</small></button><button className="camera-button" type="button" onClick={() => cameraInput.current?.click()}><span className="upload-icon"><Icon name="camera" size={22}/></span><strong>Buka kamera HP</strong><small>Ambil foto langsung dengan kamera</small></button></div> :
-           <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
+            <><div className="batch-summary"><strong>{files.length} media dipilih</strong><span>Total {formatSize(totalSize)} · Maks. 10 file</span></div><div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => { URL.revokeObjectURL(url); setFiles(x => x.filter(f => f.url !== url)) }}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div><div className="add-media-actions"><button type="button" onClick={() => input.current?.click()}><Icon name="upload" size={15}/> Tambah dari galeri</button><button type="button" onClick={() => cameraInput.current?.click()}><Icon name="camera" size={15}/> Tambah dari kamera</button></div></>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
           {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil tayang!</strong><small>Media kamu langsung masuk ke galeri live.</small></span></div> :
