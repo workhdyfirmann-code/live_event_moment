@@ -37,6 +37,7 @@ const writeLocal = (items: Media[]) => { localStorage.setItem(LOCAL_KEY, JSON.st
 const fromRow = (row: any): Media => ({ id: row.id, url: publicUrl(row.storage_path), name: row.guest_name || 'Tamu', caption: row.caption || 'Momen indah', time: new Date(row.created_at).toLocaleString('id-ID'), type: row.media_type, status: row.moderation_status, featured: row.is_featured })
 async function fetchMedia(approvedOnly = false) {
   if (!supabase) return readLocal().filter(item => !approvedOnly || item.status === 'Approved')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(EVENT_ID)) throw new Error('VITE_EVENT_ID harus berisi UUID event Supabase yang valid.')
   const query = supabase.from('media_uploads').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false })
   const { data, error } = approvedOnly ? await query.eq('moderation_status', 'Approved') : await query
   if (error) throw error
@@ -113,6 +114,7 @@ function GuestPage() {
         setProgress(Math.round(((i + 1) / files.length) * 100))
       }
       setDone(true); setFiles([])
+      window.dispatchEvent(new Event('momen-media-changed'))
     } catch (err: any) { setError(err.message || 'Upload gagal. Coba lagi.') }
   }
 
