@@ -177,6 +177,8 @@ function AdminPage() {
   const update = (id: string | number, patch: Partial<Media>) => setMedia(x => x.map(m => m.id === id ? {...m, ...patch} : m))
   const deleteMedia = async (item: Media) => {
     if (!supabase || typeof item.id !== 'string' || !item.storagePath) return
+    const confirmed = window.confirm(`Hapus media dari ${item.name}?\n\nFile akan dihapus dari Storage, record database akan dihapus, dan media akan hilang dari Live Display. Tindakan ini tidak dapat dibatalkan.`)
+    if (!confirmed) return
     try {
       const storageResult = await supabase.storage.from(STORAGE_BUCKET).remove([item.storagePath])
       if (storageResult.error) throw storageResult.error
@@ -186,7 +188,7 @@ function AdminPage() {
       setMedia(x => x.filter(m => m.id !== item.id))
     } catch (error) {
       diagnosticError('MEDIA_DELETE_ERROR', error, { mediaId: item.id, eventId: EVENT_ID })
-      alert('Media gagal dihapus sepenuhnya. File dan data dipertahankan agar tidak terjadi penghapusan sebagian.')
+      alert('Media gagal dihapus sepenuhnya. File dan data dipertahankan agar tidak terjadi penghapusan sebagian. Silakan coba lagi.')
     }
   }
   useEffect(() => { if (!supabase || !logged) return; const load = () => fetchMedia().then(setMedia).catch(err => diagnosticError('ADMIN_FETCH_ERROR', err, { eventId: EVENT_ID })); load(); const channel = supabase.channel(`admin-media-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { supabase.removeChannel(channel) } }, [logged])
