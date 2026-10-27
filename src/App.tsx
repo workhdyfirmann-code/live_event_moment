@@ -98,7 +98,11 @@ function GuestPage() {
       }
       setDone(true); setFiles([])
       window.dispatchEvent(new Event('momen-media-changed'))
-    } catch (err: any) { diagnosticError('UPLOAD_ERROR', err, { eventId: EVENT_ID }); setError(err.message || 'Upload gagal. Coba lagi.') }
+    } catch (err: any) {
+      diagnosticError('UPLOAD_ERROR', err, { eventId: EVENT_ID })
+      const detail = err?.message || err?.error || err?.statusCode || 'Storage menolak file.'
+      setError(`Upload gagal: ${detail}. Pastikan bucket event-media dan policy Storage sudah dibuat di Supabase.`)
+    }
   }
 
   return <main className="guest-page">

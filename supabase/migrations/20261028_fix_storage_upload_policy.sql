@@ -1,5 +1,9 @@
 -- Fix the anonymous upload policy for the private event-media bucket.
 -- The event UUID must be read from storage.objects.name, not events.name.
+insert into storage.buckets (id, name, public)
+values ('event-media', 'event-media', false)
+on conflict (id) do update set public = false;
+
 drop policy if exists "guests can upload event media" on storage.objects;
 
 create policy "guests can upload event media"
