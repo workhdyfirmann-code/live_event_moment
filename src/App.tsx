@@ -181,18 +181,18 @@ function AdminPage() {
     if (!confirmed) return
     try {
       const databaseResult = await supabase.from('media_uploads').delete().eq('id', item.id).select('id')
-      if (databaseResult.error) throw databaseResult.error
-      if (!databaseResult.data?.some(row => row.id === item.id)) throw new Error('Database tidak menghapus row. Periksa policy DELETE admin pada media_uploads.')
+      if (databaseResult.error) throw new Error(`Database: ${databaseResult.error.message}`)
+      if (!databaseResult.data?.some(row => row.id === item.id)) throw new Error('Database tidak menghapus row. Periksa policy DELETE admin pada media_uploads dan role profile admin.')
       const storageResult = await supabase.storage.from(STORAGE_BUCKET).remove([item.storagePath])
       if (storageResult.error) {
         diagnosticError('MEDIA_STORAGE_CLEANUP_ERROR', storageResult.error, { mediaId: item.id, eventId: EVENT_ID, storagePath: item.storagePath })
-        alert('Data database sudah dihapus, tetapi file Storage gagal dibersihkan. Simpan path ini untuk cleanup manual: ' + item.storagePath)
+        alert('Data database sudah dihapus, tetapi file Storage gagal dibersihkan. Jalankan cleanup manual untuk path: ' + item.storagePath + '\n\nDetail: ' + storageResult.error.message)
       }
       diagnostic('MEDIA_DELETED', { mediaId: item.id, eventId: EVENT_ID, storagePath: item.storagePath })
       setMedia(x => x.filter(m => m.id !== item.id))
     } catch (error) {
       diagnosticError('MEDIA_DELETE_ERROR', error, { mediaId: item.id, eventId: EVENT_ID })
-      alert('Media gagal dihapus sepenuhnya. File dan data dipertahankan agar tidak terjadi penghapusan sebagian. Silakan coba lagi.')
+      alert('Media belum terhapus. Tidak ada perubahan yang diselesaikan.\n\nDetail: ' + (error instanceof Error ? error.message : String(error)))
     }
   }
   useEffect(() => { if (!supabase || !logged) return; const load = () => fetchMedia().then(setMedia).catch(err => diagnosticError('ADMIN_FETCH_ERROR', err, { eventId: EVENT_ID })); load(); const channel = supabase.channel(`admin-media-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { supabase.removeChannel(channel) } }, [logged])
