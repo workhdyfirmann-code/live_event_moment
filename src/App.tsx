@@ -180,10 +180,14 @@ function AdminPage() {
     const confirmed = window.confirm(`Hapus media dari ${item.name}?\n\nFile akan dihapus dari Storage, record database akan dihapus, dan media akan hilang dari Live Display. Tindakan ini tidak dapat dibatalkan.`)
     if (!confirmed) return
     try {
-      const storageResult = await supabase.storage.from(STORAGE_BUCKET).remove([item.storagePath])
-      if (storageResult.error) throw storageResult.error
-      const databaseResult = await supabase.from('media_uploads').delete().eq('id', item.id)
+      const databaseResult = await supabase.from('media_uploads').delete().eq('id', item.id).select('id')
       if (databaseResult.error) throw databaseResult.error
+      if (!databaseResult.data?.some(row => row.id === item.id)) throw new Error('Database tidak menghapus row. Periksa policy DELETE admin pada media_uploads.')
+      const storageResult = await supabase.storage.from(STORAGE_BUCKET).remove([item.storagePath])
+      if (storageResult.error) {
+        diagnosticError('MEDIA_STORAGE_CLEANUP_ERROR', storageResult.error, { mediaId: item.id, eventId: EVENT_ID, storagePath: item.storagePath })
+        alert('Data database sudah dihapus, tetapi file Storage gagal dibersihkan. Simpan path ini untuk cleanup manual: ' + item.storagePath)
+      }
       diagnostic('MEDIA_DELETED', { mediaId: item.id, eventId: EVENT_ID, storagePath: item.storagePath })
       setMedia(x => x.filter(m => m.id !== item.id))
     } catch (error) {
