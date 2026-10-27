@@ -68,7 +68,7 @@ insert into storage.buckets (id, name, public) values ('event-media', 'event-med
 drop policy if exists "public can read event media" on storage.objects;
 drop policy if exists "guests can upload event media" on storage.objects;
 drop policy if exists "admins can delete event media" on storage.objects;
-create policy "guests can upload event media" on storage.objects for insert with check (bucket_id = 'event-media' and storage.extension(name) in ('jpg','jpeg','png','webp','mp4') and split_part(name, '/', 1) = 'events' and exists (select 1 from public.events e where e.id::text = split_part(name, '/', 2) and e.is_active = true));
+create policy "guests can upload event media" on storage.objects for insert to anon, authenticated with check (bucket_id = 'event-media' and storage.extension(objects.name) in ('jpg','jpeg','png','webp','mp4') and split_part(objects.name, '/', 1) = 'events' and exists (select 1 from public.events e where e.id::text = split_part(objects.name, '/', 2) and e.is_active = true));
 create policy "approved media can be read" on storage.objects for select using (bucket_id = 'event-media' and exists (select 1 from public.media_uploads m where m.storage_path = name and m.moderation_status = 'approved' and m.is_hidden = false));
 create policy "admins can read event media" on storage.objects for select using (bucket_id = 'event-media' and exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.role in ('admin','super_admin')));
 create policy "admins can delete event media" on storage.objects for delete using (bucket_id = 'event-media' and exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.role in ('admin','super_admin')));
