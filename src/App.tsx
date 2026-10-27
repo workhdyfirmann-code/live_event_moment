@@ -91,7 +91,7 @@ function GuestPage() {
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
         diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
-        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'pending' }).select('id').single()
+        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'pending' })
         if (metadata.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw metadata.error }
         diagnostic('DATABASE_INSERT_SUCCESS', { mediaId, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
