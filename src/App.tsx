@@ -154,11 +154,17 @@ function LivePage() {
   useEffect(() => {
     const load = () => fetchMedia(true).then(setApproved).catch(() => undefined)
     load(); window.addEventListener('momen-media-changed', load)
-    if (supabase) { const channel = supabase.channel('live-gallery').on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
-    return () => window.removeEventListener('momen-media-changed', load)
+    // Polling fallback keeps the LED screen current when Realtime is not enabled yet.
+    const poll = window.setInterval(load, 5000)
+    if (supabase) { const channel = supabase.channel('live-gallery').on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
+    return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load) }
   }, [])
   useEffect(() => { if (active >= approved.length) setActive(0) }, [approved.length, active])
-  useEffect(() => { const t = setInterval(() => setActive(x => (x + 1) % approved.length), 7000); return () => clearInterval(t) }, [approved.length])
+  useEffect(() => {
+    if (approved.length < 2) return
+    const t = setInterval(() => setActive(x => (x + 1) % approved.length), 7000)
+    return () => clearInterval(t)
+  }, [approved.length])
   if (!approved.length) return <main className="live-page"><div className="live-empty"><Brand light/><h1>Menunggu momen terbaik.</h1><p>Foto yang disetujui akan tampil di sini secara otomatis.</p></div></main>
   const current = approved[active]
   return <main className="live-page">
