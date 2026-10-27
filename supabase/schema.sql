@@ -52,8 +52,8 @@ drop policy if exists "active events are public" on public.events;
 create policy "active events are public" on public.events for select using (is_active = true);
 drop policy if exists "approved media is public" on public.media_uploads;
 create policy "approved media is public" on public.media_uploads for select using (moderation_status = 'approved' and is_hidden = false and exists (select 1 from public.events e where e.id = event_id and e.is_active = true and coalesce((e.settings->>'public_gallery')::boolean, true)));
-create policy "guests submit pending media" on public.media_uploads for insert with check (
-  moderation_status = 'pending' and file_size <= 26214400 and
+create policy "guests submit approved media" on public.media_uploads for insert to anon, authenticated with check (
+  moderation_status = 'approved' and file_size <= 26214400 and
   exists (select 1 from public.events e where e.id = event_id and e.is_active = true)
 );
 drop policy if exists "admins manage media" on public.media_uploads;

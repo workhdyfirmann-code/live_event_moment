@@ -41,7 +41,7 @@ Backend Supabase wajib dikonfigurasi untuk upload, autentikasi, storage, dan liv
 
 ## Rute
 
-- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload Storage, metadata `pending`, dan retry/error state.
+- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload Storage, metadata `approved` untuk direct-to-live, dan retry/error state.
 - `/live` — layar fullscreen. Hanya media approved, slideshow otomatis, dan menerima perubahan status melalui Supabase Realtime.
 - `/admin` — login Supabase Auth, statistik, filter, pencarian, approve/reject/delete/featured. RLS tetap memvalidasi hak admin di database.
 
@@ -55,6 +55,8 @@ Setelah migration dan environment variables aktif, uji dari dua browser/perangka
 4. Login `/admin`, approve media.
 5. Buka `/live` di perangkat lain; subscription dan polling fallback harus menampilkan media tanpa reload.
 6. Reject/hide/delete dari admin dan pastikan item hilang setelah event update atau resync.
+
+Untuk mode direct-to-live, jalankan migration `supabase/migrations/20261028_enable_direct_live.sql`. Dengan mode ini, upload tamu langsung berstatus `approved`; gunakan hanya jika acara memang tidak membutuhkan moderasi manual.
 
 Gunakan DevTools Console untuk log `FILE_SELECTED`, `STORAGE_UPLOAD_SUCCESS`, `DATABASE_INSERT_SUCCESS`, `REALTIME_EVENT_RECEIVED`, dan `MEDIA_RENDERED`. Test terhadap project Supabase/Vercel aktual harus dilakukan setelah credentials tersedia; build lokal saja tidak membuktikan koneksi backend.
 

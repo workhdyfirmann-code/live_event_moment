@@ -91,7 +91,7 @@ function GuestPage() {
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
         diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
-        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'pending' })
+        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'approved', approved_at: new Date().toISOString() })
         if (metadata.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw metadata.error }
         diagnostic('DATABASE_INSERT_SUCCESS', { mediaId, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
@@ -124,7 +124,7 @@ function GuestPage() {
            <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
-          {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil terkirim!</strong><small>Media kamu sedang menunggu persetujuan admin.</small></span></div> :
+          {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil tayang!</strong><small>Media kamu langsung masuk ke galeri live.</small></span></div> :
           <button className="primary-button" onClick={upload}><Icon name="upload" size={18}/>{files.length ? `Kirim ${files.length} media` : 'Pilih media untuk diunggah'}<Icon name="chevron" size={17}/></button>}
          <p className="privacy">Dengan mengunggah, kamu setuju media langsung ditampilkan pada galeri acara.</p>
       </div>
