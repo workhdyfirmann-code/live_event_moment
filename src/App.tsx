@@ -45,7 +45,8 @@ async function fetchMedia(approvedOnly = false) {
 
 const Icon = ({ name, size = 20 }: { name: string; size?: number }) => {
   const paths: Record<string, ReactNode> = {
-    upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/></>,
+     upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/></>,
+     camera: <><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.5"/></>,
     image: <><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 15l-5-5L5 20"/></>,
     play: <path d="M8 5v14l11-7z"/>,
     check: <path d="M5 12l4 4L19 6"/>,
@@ -70,6 +71,7 @@ function Brand({ light = false }: { light?: boolean }) {
 
 function GuestPage() {
   const input = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<{ file: File; url: string }[]>([])
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
@@ -84,7 +86,8 @@ function GuestPage() {
     const invalid = selected.find(file => !allowed.includes(file.type) || file.size > 25 * 1024 * 1024)
     if (invalid) return setError(`${invalid.name} tidak didukung atau melebihi 25 MB.`)
     setError('')
-    setFiles(selected.map(file => ({ file, url: URL.createObjectURL(file) })))
+    setFiles(current => [...current, ...selected.map(file => ({ file, url: URL.createObjectURL(file) }))])
+    event.target.value = ''
   }
 
   useEffect(() => { fetchMedia(true).then(setGallery).catch(() => undefined); const refresh = () => fetchMedia(true).then(setGallery).catch(() => undefined); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
@@ -122,9 +125,10 @@ function GuestPage() {
         <div className="step"><span>01</span><div><strong>Ceritakan momennya</strong><small>Opsional, tapi membuatnya lebih personal.</small></div></div>
          <div className="fields"><label>Nama kamu<input value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Contoh: Nadia & Fikri"/></label><label>Pesan singkat<textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="Tulis doa atau cerita singkatmu..."/></label></div>
         <div className="step second"><span>02</span><div><strong>Pilih foto & video</strong><small>JPG, PNG, WEBP atau MP4 · Maks. 25 MB/file</small></div></div>
-        <input ref={input} className="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4" onChange={pick}/>
-        {!files.length ? <button className="dropzone" onClick={() => input.current?.click()}><span className="upload-icon"><Icon name="upload" size={25}/></span><strong>Ketuk untuk pilih media</strong><small>atau ambil langsung dari kamera</small></button> :
-          <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
+         <input ref={input} className="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={pick}/>
+         <input ref={cameraInput} className="file-input" type="file" accept="image/*,video/mp4" capture="environment" onChange={pick}/>
+         {!files.length ? <div className="upload-options"><button className="dropzone" onClick={() => input.current?.click()}><span className="upload-icon"><Icon name="upload" size={25}/></span><strong>Pilih dari galeri</strong><small>JPG, PNG, WEBP atau MP4</small></button><button className="camera-button" onClick={() => cameraInput.current?.click()}><span className="upload-icon"><Icon name="camera" size={22}/></span><strong>Ambil dengan kamera</strong><small>Gunakan kamera perangkat</small></button></div> :
+           <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
         {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil terkirim!</strong><small>Media kamu sedang menunggu persetujuan.</small></span></div> :
