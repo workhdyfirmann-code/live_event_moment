@@ -97,14 +97,14 @@ function GuestPage() {
     setDone(false); setProgress(8); setError('')
     try {
       if (!supabase) {
-        const additions = files.map(({ file, url }, index) => ({ id: `local-${Date.now()}-${index}`, url, name: guestName || 'Tamu', caption: caption || 'Momen indah', time: 'Baru saja', type: file.type.startsWith('video') ? 'video' as const : 'photo' as const, status: 'Pending' as const }))
+        const additions = files.map(({ file, url }, index) => ({ id: `local-${Date.now()}-${index}`, url, name: guestName || 'Tamu', caption: caption || 'Momen indah', time: 'Baru saja', type: file.type.startsWith('video') ? 'video' as const : 'photo' as const, status: 'Approved' as const }))
         writeLocal([...additions, ...readLocal()]); setProgress(100); setDone(true); return
       }
       for (let i = 0; i < files.length; i++) {
         const { file } = files[i]; const path = `${EVENT_ID}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}`
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
-        const saved = await supabase.from('media_uploads').insert({ event_id: EVENT_ID, guest_name: guestName || null, caption: caption || null, storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'photo', mime_type: file.type, file_size: file.size }).select().single()
+        const saved = await supabase.from('media_uploads').insert({ event_id: EVENT_ID, guest_name: guestName || null, caption: caption || null, storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'photo', mime_type: file.type, file_size: file.size, moderation_status: 'Approved', approved_at: new Date().toISOString() }).select().single()
         if (saved.error) throw saved.error
         setProgress(Math.round(((i + 1) / files.length) * 100))
       }
@@ -133,7 +133,7 @@ function GuestPage() {
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
         {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil terkirim!</strong><small>Media kamu sedang menunggu persetujuan.</small></span></div> :
           <button className="primary-button" onClick={upload}><Icon name="upload" size={18}/>{files.length ? `Kirim ${files.length} media` : 'Pilih media untuk diunggah'}<Icon name="chevron" size={17}/></button>}
-        <p className="privacy">Dengan mengunggah, kamu setuju media ditampilkan pada galeri acara.</p>
+         <p className="privacy">Dengan mengunggah, kamu setuju media langsung ditampilkan pada galeri acara.</p>
       </div>
     </section>
     <section className="public-gallery" id="gallery">

@@ -22,7 +22,7 @@ alter table profiles enable row level security;
 alter table media_uploads enable row level security;
 create policy "active events are public" on events for select using (is_active = true);
 create policy "approved media is public" on media_uploads for select using (moderation_status = 'Approved');
-create policy "guests can submit media" on media_uploads for insert with check (file_size <= 26214400 and moderation_status = 'Pending');
+create policy "guests can submit media" on media_uploads for insert with check (file_size <= 26214400 and moderation_status = 'Approved');
 create policy "admins manage media" on media_uploads for all using (exists (select 1 from profiles where user_id = auth.uid() and role in ('admin','moderator')));
 create policy "admins read profiles" on profiles for select using (user_id = auth.uid());
 

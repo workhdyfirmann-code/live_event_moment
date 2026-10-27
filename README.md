@@ -41,7 +41,7 @@ Tanpa environment variables, aplikasi berjalan dalam **mode demo lokal** menggun
 
 ## Rute
 
-- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload storage, metadata, dan status pending.
+- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload storage, metadata, dan langsung menayangkan media yang berhasil diunggah.
 - `/live` — layar fullscreen. Hanya media approved, slideshow otomatis, dan menerima perubahan status melalui Supabase Realtime.
 - `/admin` — login Supabase Auth, statistik, filter, pencarian, approve/reject/delete/featured.
 
