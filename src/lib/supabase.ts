@@ -21,3 +21,6 @@ export type Media = {
 
 export const publicUrl = (path: string) =>
   supabase?.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl || path
+
+export const diagnostic = (event: string, details: Record<string, unknown> = {}) => console.info(`[MOMEN KITA] ${event}`, details)
+export const diagnosticError = (event: string, error: unknown, details: Record<string, unknown> = {}) => console.error(`[MOMEN KITA] ${event}`, { ...details, error: error instanceof Error ? error.message : String(error) })

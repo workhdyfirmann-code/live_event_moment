@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { EVENT_ID, STORAGE_BUCKET, publicUrl, supabase } from './lib/supabase'
+import { EVENT_ID, STORAGE_BUCKET, diagnostic, diagnosticError, publicUrl, supabase } from './lib/supabase'
 
 type Status = 'Pending' | 'Approved' | 'Rejected'
 type Media = {
@@ -41,6 +41,7 @@ async function fetchMedia(approvedOnly = false) {
   const query = supabase.from('media_uploads').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false })
   const { data, error } = approvedOnly ? await query.eq('moderation_status', 'Approved') : await query
   if (error) throw error
+  diagnostic('MEDIA_FETCH_SUCCESS', { eventId: EVENT_ID, count: data?.length || 0, approvedOnly })
   return (data || []).map(fromRow)
 }
 
@@ -91,7 +92,7 @@ function GuestPage() {
     event.target.value = ''
   }
 
-  useEffect(() => { fetchMedia(true).then(setGallery).catch(() => undefined); const refresh = () => fetchMedia(true).then(setGallery).catch(() => undefined); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
+  useEffect(() => { const refresh = () => fetchMedia(true).then(setGallery).catch(err => diagnosticError('GALLERY_FETCH_ERROR', err, { eventId: EVENT_ID })); refresh(); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
 
   const upload = async () => {
     if (!files.length) return input.current?.click()
@@ -106,16 +107,20 @@ function GuestPage() {
         writeLocal([...additions, ...readLocal()]); setProgress(100); setDone(true); return
       }
       for (let i = 0; i < files.length; i++) {
-        const { file } = files[i]; const path = `${EVENT_ID}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}`
+        const { file } = files[i]; const mediaId = crypto.randomUUID(); const path = `${EVENT_ID}/${mediaId}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}`
+        diagnostic('FILE_SELECTED', { mediaId, eventId: EVENT_ID, mediaType: file.type, fileSize: file.size })
+        diagnostic('UPLOAD_STARTED', { mediaId, eventId: EVENT_ID })
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
+        diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
         const saved = await supabase.from('media_uploads').insert({ event_id: EVENT_ID, guest_name: guestName || null, caption: caption || null, storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'photo', mime_type: file.type, file_size: file.size, moderation_status: 'Approved', approved_at: new Date().toISOString() }).select().single()
-        if (saved.error) throw saved.error
+        if (saved.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw saved.error }
+        diagnostic('DATABASE_INSERT_SUCCESS', { mediaId: saved.data?.id, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
       }
       setDone(true); setFiles([])
       window.dispatchEvent(new Event('momen-media-changed'))
-    } catch (err: any) { setError(err.message || 'Upload gagal. Coba lagi.') }
+    } catch (err: any) { diagnosticError('UPLOAD_ERROR', err, { eventId: EVENT_ID }); setError(err.message || 'Upload gagal. Coba lagi.') }
   }
 
   return <main className="guest-page">
@@ -137,7 +142,7 @@ function GuestPage() {
            <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
-        {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil terkirim!</strong><small>Media kamu sedang menunggu persetujuan.</small></span></div> :
+         {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil tayang!</strong><small>Media kamu sudah masuk ke galeri live.</small></span></div> :
           <button className="primary-button" onClick={upload}><Icon name="upload" size={18}/>{files.length ? `Kirim ${files.length} media` : 'Pilih media untuk diunggah'}<Icon name="chevron" size={17}/></button>}
          <p className="privacy">Dengan mengunggah, kamu setuju media langsung ditampilkan pada galeri acara.</p>
       </div>
@@ -154,11 +159,11 @@ function LivePage() {
   const [active, setActive] = useState(0)
   const [approved, setApproved] = useState<Media[]>(() => readLocal().filter(x => x.status === 'Approved'))
   useEffect(() => {
-    const load = () => fetchMedia(true).then(setApproved).catch(() => undefined)
+    const load = () => fetchMedia(true).then(items => { setApproved(items); items.forEach(item => diagnostic('MEDIA_ADDED_TO_SLIDESHOW', { mediaId: item.id, eventId: EVENT_ID })) }).catch(err => diagnosticError('REALTIME_ERROR', err, { eventId: EVENT_ID }))
     load(); window.addEventListener('momen-media-changed', load)
     // Polling fallback keeps the LED screen current when Realtime is not enabled yet.
     const poll = window.setInterval(load, 5000)
-    if (supabase) { const channel = supabase.channel('live-gallery').on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
+    if (supabase) { const channel = supabase.channel(`live-gallery-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, payload => { diagnostic('REALTIME_EVENT_RECEIVED', { mediaId: (payload.new as any)?.id || (payload.old as any)?.id, eventId: EVENT_ID, event: payload.eventType }); load() }).subscribe(status => diagnostic(status === 'SUBSCRIBED' ? 'REALTIME_CONNECTED' : 'REALTIME_STATUS', { eventId: EVENT_ID, status })); return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
     return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load) }
   }, [])
   useEffect(() => { if (active >= approved.length) setActive(0) }, [approved.length, active])
@@ -173,7 +178,7 @@ function LivePage() {
     <div className="live-bg" style={{backgroundImage: `url(${current.url})`}}/>
     <header className="live-head"><Brand light/><div className="live-label"><i/> LIVE · RAKA & NADINE</div><button onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Fullscreen"><Icon name="expand"/></button></header>
     <section className="live-stage" key={current.id}>
-      <div className="live-photo"><img src={current.url} alt={current.caption}/><span className="corner tl"/><span className="corner br"/></div>
+       <div className="live-photo"><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
       <div className="live-copy"><span>MOMEN TERBARU</span><blockquote>“{current.caption}”</blockquote><p>— {current.name}</p></div>
     </section>
     <footer className="live-footer"><div>12 OKTOBER 2025 <span/> THE GRAND BALLROOM, JAKARTA</div><div className="live-progress"><i key={active}/></div><small>{active + 1} / {approved.length}</small></footer>

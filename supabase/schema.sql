@@ -30,3 +30,13 @@ insert into storage.buckets (id, name, public) values ('event-media', 'event-med
 create policy "public can read event media" on storage.objects for select using (bucket_id = 'event-media');
 create policy "guests can upload event media" on storage.objects for insert with check (bucket_id = 'event-media');
 create policy "admins can delete event media" on storage.objects for delete using (bucket_id = 'event-media' and auth.role() = 'authenticated');
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'media_uploads'
+  ) then
+    alter publication supabase_realtime add table public.media_uploads;
+  end if;
+end $$;
