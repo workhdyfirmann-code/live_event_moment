@@ -94,6 +94,10 @@ function GuestPage() {
 
   const upload = async () => {
     if (!files.length) return input.current?.click()
+    if (!guestName.trim() || !caption.trim()) {
+      setError('Nama tamu dan pesan singkat wajib diisi sebelum mengunggah.')
+      return
+    }
     setDone(false); setProgress(8); setError('')
     try {
       if (!supabase) {
@@ -123,7 +127,7 @@ function GuestPage() {
     <section className="upload-wrap">
       <div className="upload-card">
         <div className="step"><span>01</span><div><strong>Ceritakan momennya</strong><small>Opsional, tapi membuatnya lebih personal.</small></div></div>
-         <div className="fields"><label>Nama kamu<input value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Contoh: Nadia & Fikri"/></label><label>Pesan singkat<textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="Tulis doa atau cerita singkatmu..."/></label></div>
+         <div className="fields"><label>Nama kamu <span className="required-mark"> wajib</span><input required value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Contoh: Nadia & Fikri"/></label><label>Pesan singkat <span className="required-mark"> wajib</span><textarea required value={caption} onChange={e => setCaption(e.target.value)} placeholder="Tulis doa atau cerita singkatmu..."/></label></div>
         <div className="step second"><span>02</span><div><strong>Pilih foto & video</strong><small>JPG, PNG, WEBP atau MP4 · Maks. 25 MB/file</small></div></div>
          <input ref={input} className="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={pick}/>
          <input ref={cameraInput} className="file-input" type="file" accept="image/*,video/mp4" capture="environment" onChange={pick}/>
