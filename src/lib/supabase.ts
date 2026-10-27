@@ -6,6 +6,7 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 export const supabase = url && key ? createClient(url, key) : null
 export const EVENT_ID = (import.meta.env.VITE_EVENT_ID as string | undefined)?.trim() || 'demo-event'
 export const STORAGE_BUCKET = 'event-media'
+export const hasBackend = Boolean(supabase && url && key)
 
 export type Media = {
   id: string
@@ -19,8 +20,12 @@ export type Media = {
   featured?: boolean
 }
 
-export const publicUrl = (path: string) =>
-  supabase?.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl || path
+export const mediaUrl = async (path: string) => {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi')
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 3600)
+  if (error) throw error
+  return data.signedUrl
+}
 
 export const diagnostic = (event: string, details: Record<string, unknown> = {}) => console.info(`[MOMEN KITA] ${event}`, details)
 export const diagnosticError = (event: string, error: unknown, details: Record<string, unknown> = {}) => console.error(`[MOMEN KITA] ${event}`, { ...details, error: error instanceof Error ? error.message : String(error) })

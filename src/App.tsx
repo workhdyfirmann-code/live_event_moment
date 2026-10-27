@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { EVENT_ID, STORAGE_BUCKET, diagnostic, diagnosticError, publicUrl, supabase } from './lib/supabase'
+import { EVENT_ID, STORAGE_BUCKET, diagnostic, diagnosticError, mediaUrl, supabase } from './lib/supabase'
 
-type Status = 'Pending' | 'Approved' | 'Rejected'
+type Status = 'pending' | 'approved' | 'rejected'
 type Media = {
   id: string | number
   url: string
@@ -13,36 +13,17 @@ type Media = {
   featured?: boolean
 }
 
-const photos = [
-  'https://images.unsplash.com/photo-1525272149490-82288cb110a0?auto=format&fit=crop&w=1200&q=85',
-  'https://images.unsplash.com/photo-1749731893442-1f9a0dfe12cb?auto=format&fit=crop&w=900&q=85',
-  'https://images.unsplash.com/photo-1715588837113-80441978e93e?auto=format&fit=crop&w=900&q=85',
-  'https://images.unsplash.com/photo-1623991616266-37fcccc0d679?auto=format&fit=crop&w=900&q=85',
-  'https://images.unsplash.com/photo-1610604708806-a5c1d7c9bc21?auto=format&fit=crop&w=1200&q=85',
-  'https://images.unsplash.com/photo-1769038935144-bf372fe6ec08?auto=format&fit=crop&w=900&q=85',
-]
+const initialMedia: Media[] = []
 
-const initialMedia: Media[] = [
-  { id: 1, url: photos[0], name: 'Nadia & Fikri', caption: 'Bahagia selalu untuk kalian!', time: 'Baru saja', type: 'photo', status: 'Pending' },
-  { id: 2, url: photos[1], name: 'Alya Pratama', caption: 'Momen haru yang indah', time: '2 menit lalu', type: 'photo', status: 'Approved', featured: true },
-  { id: 3, url: photos[2], name: 'Raka', caption: 'Satu frame, seribu cerita.', time: '4 menit lalu', type: 'photo', status: 'Approved' },
-  { id: 4, url: photos[3], name: 'Dinda', caption: 'Turut berbahagia!', time: '8 menit lalu', type: 'photo', status: 'Pending' },
-  { id: 5, url: photos[4], name: 'Keluarga Wirawan', caption: 'Selamat menempuh hidup baru', time: '12 menit lalu', type: 'photo', status: 'Rejected' },
-  { id: 6, url: photos[5], name: 'Salsa', caption: 'A night to remember', time: '15 menit lalu', type: 'photo', status: 'Approved' },
-]
-
-const LOCAL_KEY = `momen-kita-media-${EVENT_ID}`
-const readLocal = (): Media[] => { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null') || initialMedia } catch { return initialMedia } }
-const writeLocal = (items: Media[]) => { localStorage.setItem(LOCAL_KEY, JSON.stringify(items)); window.dispatchEvent(new Event('momen-media-changed')) }
-const fromRow = (row: any): Media => ({ id: row.id, url: publicUrl(row.storage_path), name: row.guest_name || 'Tamu', caption: row.caption || 'Momen indah', time: new Date(row.created_at).toLocaleString('id-ID'), type: row.media_type, status: row.moderation_status, featured: row.is_featured })
+const fromRow = async (row: any): Promise<Media> => ({ id: row.id, url: await mediaUrl(row.storage_path), name: row.guest_name || 'Tamu', caption: row.caption || 'Momen indah', time: new Date(row.created_at).toLocaleString('id-ID'), type: row.media_type, status: String(row.moderation_status).toLowerCase() as Status, featured: row.is_featured })
 async function fetchMedia(approvedOnly = false) {
-  if (!supabase) return readLocal().filter(item => !approvedOnly || item.status === 'Approved')
+  if (!supabase) throw new Error('Backend belum dikonfigurasi. Isi VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, dan VITE_EVENT_ID di Vercel.')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(EVENT_ID)) throw new Error('VITE_EVENT_ID harus berisi UUID event Supabase yang valid.')
   const query = supabase.from('media_uploads').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false })
-  const { data, error } = approvedOnly ? await query.eq('moderation_status', 'Approved') : await query
+  const { data, error } = approvedOnly ? await query.eq('moderation_status', 'approved') : await query
   if (error) throw error
   diagnostic('MEDIA_FETCH_SUCCESS', { eventId: EVENT_ID, count: data?.length || 0, approvedOnly })
-  return (data || []).map(fromRow)
+  return Promise.all((data || []).map(fromRow))
 }
 
 const Icon = ({ name, size = 20 }: { name: string; size?: number }) => {
@@ -78,7 +59,7 @@ function GuestPage() {
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
-  const [gallery, setGallery] = useState<Media[]>(() => readLocal().filter(x => x.status === 'Approved'))
+  const [gallery, setGallery] = useState<Media[]>([])
   const [guestName, setGuestName] = useState('')
   const [caption, setCaption] = useState('')
 
@@ -102,20 +83,17 @@ function GuestPage() {
     }
     setDone(false); setProgress(8); setError('')
     try {
-      if (!supabase) {
-        const additions = files.map(({ file, url }, index) => ({ id: `local-${Date.now()}-${index}`, url, name: guestName || 'Tamu', caption: caption || 'Momen indah', time: 'Baru saja', type: file.type.startsWith('video') ? 'video' as const : 'photo' as const, status: 'Approved' as const }))
-        writeLocal([...additions, ...readLocal()]); setProgress(100); setDone(true); return
-      }
+      if (!supabase) throw new Error('Upload belum tersedia karena koneksi Supabase belum dikonfigurasi.')
       for (let i = 0; i < files.length; i++) {
-        const { file } = files[i]; const mediaId = crypto.randomUUID(); const path = `${EVENT_ID}/${mediaId}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}`
+        const { file } = files[i]; const mediaId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || (file.type === 'video/mp4' ? 'mp4' : 'jpg'); const path = `events/${EVENT_ID}/${mediaId}/original.${extension}`
         diagnostic('FILE_SELECTED', { mediaId, eventId: EVENT_ID, mediaType: file.type, fileSize: file.size })
         diagnostic('UPLOAD_STARTED', { mediaId, eventId: EVENT_ID })
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
         diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
-        const saved = await supabase.from('media_uploads').insert({ event_id: EVENT_ID, guest_name: guestName || null, caption: caption || null, storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'photo', mime_type: file.type, file_size: file.size, moderation_status: 'Approved', approved_at: new Date().toISOString() }).select().single()
-        if (saved.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw saved.error }
-        diagnostic('DATABASE_INSERT_SUCCESS', { mediaId: saved.data?.id, eventId: EVENT_ID })
+        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'pending' }).select('id').single()
+        if (metadata.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw metadata.error }
+        diagnostic('DATABASE_INSERT_SUCCESS', { mediaId, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
       }
       setDone(true); setFiles([])
@@ -142,7 +120,7 @@ function GuestPage() {
            <div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => setFiles(x => x.filter(f => f.url !== url))}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
-         {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil tayang!</strong><small>Media kamu sudah masuk ke galeri live.</small></span></div> :
+          {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil terkirim!</strong><small>Media kamu sedang menunggu persetujuan admin.</small></span></div> :
           <button className="primary-button" onClick={upload}><Icon name="upload" size={18}/>{files.length ? `Kirim ${files.length} media` : 'Pilih media untuk diunggah'}<Icon name="chevron" size={17}/></button>}
          <p className="privacy">Dengan mengunggah, kamu setuju media langsung ditampilkan pada galeri acara.</p>
       </div>
@@ -157,7 +135,7 @@ function GuestPage() {
 
 function LivePage() {
   const [active, setActive] = useState(0)
-  const [approved, setApproved] = useState<Media[]>(() => readLocal().filter(x => x.status === 'Approved'))
+  const [approved, setApproved] = useState<Media[]>([])
   useEffect(() => {
     const load = () => fetchMedia(true).then(items => { setApproved(items); items.forEach(item => diagnostic('MEDIA_ADDED_TO_SLIDESHOW', { mediaId: item.id, eventId: EVENT_ID })) }).catch(err => diagnosticError('REALTIME_ERROR', err, { eventId: EVENT_ID }))
     load(); window.addEventListener('momen-media-changed', load)
@@ -187,25 +165,24 @@ function LivePage() {
 
 function AdminPage() {
   const [logged, setLogged] = useState(false)
-  const [media, setMedia] = useState(initialMedia)
-  const [backend, setBackend] = useState(Boolean(supabase))
+  const [media, setMedia] = useState<Media[]>([])
   const [filter, setFilter] = useState<'All' | Status>('All')
   const [query, setQuery] = useState('')
   const list = useMemo(() => media.filter(x => (filter === 'All' || x.status === filter) && x.name.toLowerCase().includes(query.toLowerCase())), [media, filter, query])
-  const update = (id: string | number, patch: Partial<Media>) => setMedia(x => { const next = x.map(m => m.id === id ? {...m, ...patch} : m); if (!supabase) writeLocal(next); return next })
-  useEffect(() => { if (!supabase) return; fetchMedia().then(setMedia).catch(() => undefined); const channel = supabase.channel('admin-media').on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, () => fetchMedia().then(setMedia)).subscribe(); return () => { supabase.removeChannel(channel) } }, [])
-  const moderate = async (id: string | number, status: Status) => { if (supabase && typeof id === 'string') { await supabase.from('media_uploads').update({ moderation_status: status, approved_at: status === 'Approved' ? new Date().toISOString() : null }).eq('id', id) } else update(id, { status }) }
-   if (!logged) return <main className="login-page"><div className="login-visual"><div className="login-image"/><div className="login-overlay"><Brand light/><blockquote>“Setiap momen layak<br/>untuk <em>diabadikan.</em>”</blockquote><p>Kelola cerita indah dari para tamu dalam satu tempat.</p></div></div><div className="login-panel"><div className="login-box"><span className="login-kicker">ADMIN PORTAL</span><h1>Selamat datang kembali.</h1><p>Masuk untuk mengelola galeri acaramu.</p><label>Email<input type="email" defaultValue="admin@momenkita.id"/></label><label>Password<div className="password"><input type="password" defaultValue="password"/></div></label><div className="login-row"><label className="check"><input type="checkbox" defaultChecked/> Ingat saya</label><button>Lupa password?</button></div><button className="primary-button" onClick={async () => { if (supabase) { const email = (document.querySelector('input[type=email]') as HTMLInputElement).value; const password = (document.querySelector('input[type=password]') as HTMLInputElement).value; const result = await supabase.auth.signInWithPassword({ email, password }); if (result.error) return alert(result.error.message) } setLogged(true) }}>Masuk ke dashboard <Icon name="chevron" size={17}/></button><small className="demo-note">{backend ? 'Gunakan akun admin Supabase.' : 'Mode demo: isi env Supabase untuk autentikasi nyata.'}</small></div></div></main>
+  const update = (id: string | number, patch: Partial<Media>) => setMedia(x => x.map(m => m.id === id ? {...m, ...patch} : m))
+  useEffect(() => { if (!supabase || !logged) return; const load = () => fetchMedia().then(setMedia).catch(err => diagnosticError('ADMIN_FETCH_ERROR', err, { eventId: EVENT_ID })); load(); const channel = supabase.channel(`admin-media-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { supabase.removeChannel(channel) } }, [logged])
+  const moderate = async (id: string | number, status: Status) => { if (!supabase || typeof id !== 'string') return; const { error } = await supabase.from('media_uploads').update({ moderation_status: status, approved_at: status === 'approved' ? new Date().toISOString() : null }).eq('id', id); if (error) diagnosticError('MODERATION_ERROR', error, { mediaId: id, eventId: EVENT_ID }) }
+   if (!logged) return <main className="login-page"><div className="login-visual"><div className="login-image"/><div className="login-overlay"><Brand light/><blockquote>“Setiap momen layak<br/>untuk <em>diabadikan.</em>”</blockquote><p>Kelola cerita indah dari para tamu dalam satu tempat.</p></div></div><div className="login-panel"><div className="login-box"><span className="login-kicker">ADMIN PORTAL</span><h1>Selamat datang kembali.</h1><p>Masuk untuk mengelola galeri acaramu.</p><label>Email<input type="email" placeholder="admin@example.com"/></label><label>Password<div className="password"><input type="password" placeholder="Password"/></div></label><div className="login-row"><label className="check"><input type="checkbox" defaultChecked/> Ingat saya</label><button>Lupa password?</button></div><button className="primary-button" onClick={async () => { if (!supabase) return alert('Supabase belum dikonfigurasi.'); const email = (document.querySelector('input[type=email]') as HTMLInputElement).value; const password = (document.querySelector('input[type=password]') as HTMLInputElement).value; const result = await supabase.auth.signInWithPassword({ email, password }); if (result.error) return alert(result.error.message); setLogged(true) }}>Masuk ke dashboard <Icon name="chevron" size={17}/></button><small className="demo-note">Login menggunakan akun Supabase Auth.</small></div></div></main>
 
-  const counts = { Pending: media.filter(x => x.status === 'Pending').length, Approved: media.filter(x => x.status === 'Approved').length, Rejected: media.filter(x => x.status === 'Rejected').length }
+   const counts = { pending: media.filter(x => x.status === 'pending').length, approved: media.filter(x => x.status === 'approved').length, rejected: media.filter(x => x.status === 'rejected').length }
   return <main className="admin-page">
-    <aside><Brand light/><nav><small>MENU UTAMA</small><button className="active"><Icon name="grid"/> Media Gallery <b>{counts.Pending}</b></button><button><Icon name="users"/> Guest Activity</button><button><Icon name="settings"/> Event Settings</button></nav><div className="side-event"><small>ACARA AKTIF</small><strong>Raka & Nadine</strong><span><i/> Live display aktif</span></div><button className="logout" onClick={() => setLogged(false)}><Icon name="logout"/> Keluar</button></aside>
+    <aside><Brand light/><nav><small>MENU UTAMA</small><button className="active"><Icon name="grid"/> Media Gallery <b>{counts.pending}</b></button><button><Icon name="users"/> Guest Activity</button><button><Icon name="settings"/> Event Settings</button></nav><div className="side-event"><small>ACARA AKTIF</small><strong>Raka & Nadine</strong><span><i/> Live display aktif</span></div><button className="logout" onClick={() => setLogged(false)}><Icon name="logout"/> Keluar</button></aside>
     <section className="dashboard">
       <header><div><span>DASHBOARD</span><h1>Selamat sore, Admin.</h1><p>Ini yang terjadi di acaramu hari ini.</p></div><a href="/live"><i/> Buka Live Display <Icon name="chevron" size={16}/></a></header>
       <div className="stats"><article><span><Icon name="image"/></span><div><small>Total Unggahan</small><strong>{media.length}</strong><em>+6 dalam 1 jam</em></div></article><article><span><Icon name="users"/></span><div><small>Kontributor</small><strong>42</strong><em>+8 tamu baru</em></div></article><article><span><Icon name="image"/></span><div><small>Total Foto</small><strong>{media.filter(x=>x.type==='photo').length}</strong><em>86% dari media</em></div></article><article><span><Icon name="play"/></span><div><small>Total Video</small><strong>12</strong><em>14% dari media</em></div></article></div>
       <div className="moderation-head"><div><h2>Moderasi Media</h2><p>Tinjau dan kelola unggahan dari para tamu.</p></div><label className="auto"><span><strong>Auto-approve</strong><small>Media langsung tayang</small></span><input type="checkbox"/><i/></label></div>
-      <div className="toolbar"><div className="tabs">{(['All','Pending','Approved','Rejected'] as const).map(x => <button className={filter === x ? 'active' : ''} onClick={() => setFilter(x)} key={x}>{x === 'All' ? 'Semua' : x} <span>{x === 'All' ? media.length : counts[x]}</span></button>)}</div><label className="search"><Icon name="search" size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari nama tamu..."/></label></div>
-       <div className="media-grid">{list.map(item => <article className="media-card" key={item.id}><div className="media-image">{item.type === 'video' ? <video src={item.url} controls /> : <img src={item.url} alt={item.caption}/>}<span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>{item.featured && <span className="featured"><Icon name="star" size={12}/> Featured</span>}<div className="card-actions"><button title="Feature" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').update({ is_featured: !item.featured }).eq('id', item.id); update(item.id, {featured: !item.featured}) }}><Icon name="star" size={16}/></button><button title="Delete" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').delete().eq('id', item.id); setMedia(x => x.filter(m => m.id !== item.id)) }}><Icon name="trash" size={16}/></button></div></div><div className="media-info"><strong>{item.name}</strong><p>“{item.caption}”</p><small>{item.time}</small></div>{item.status === 'Pending' ? <div className="review-actions"><button onClick={() => moderate(item.id,'Rejected')}><Icon name="x" size={16}/> Tolak</button><button onClick={() => moderate(item.id,'Approved')}><Icon name="check" size={16}/> Setujui</button></div> : <div className="approved-row"><span><Icon name={item.status === 'Approved' ? 'check' : 'x'} size={15}/>{item.status === 'Approved' ? 'Tayang di galeri' : 'Tidak ditayangkan'}</span><button>•••</button></div>}</article>)}</div>
+      <div className="toolbar"><div className="tabs">{(['all','pending','approved','rejected'] as const).map(x => <button className={filter === (x === 'all' ? 'All' : x) ? 'active' : ''} onClick={() => setFilter(x === 'all' ? 'All' : x)} key={x}>{x === 'all' ? 'Semua' : x} <span>{x === 'all' ? media.length : counts[x]}</span></button>)}</div><label className="search"><Icon name="search" size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari nama tamu..."/></label></div>
+       <div className="media-grid">{list.map(item => <article className="media-card" key={item.id}><div className="media-image">{item.type === 'video' ? <video src={item.url} controls /> : <img src={item.url} alt={item.caption}/>}<span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>{item.featured && <span className="featured"><Icon name="star" size={12}/> Featured</span>}<div className="card-actions"><button title="Feature" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').update({ is_featured: !item.featured }).eq('id', item.id); update(item.id, {featured: !item.featured}) }}><Icon name="star" size={16}/></button><button title="Delete" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').delete().eq('id', item.id); setMedia(x => x.filter(m => m.id !== item.id)) }}><Icon name="trash" size={16}/></button></div></div><div className="media-info"><strong>{item.name}</strong><p>“{item.caption}”</p><small>{item.time}</small></div>{item.status === 'pending' ? <div className="review-actions"><button onClick={() => moderate(item.id,'rejected')}><Icon name="x" size={16}/> Tolak</button><button onClick={() => moderate(item.id,'approved')}><Icon name="check" size={16}/> Setujui</button></div> : <div className="approved-row"><span><Icon name={item.status === 'approved' ? 'check' : 'x'} size={15}/>{item.status === 'approved' ? 'Tayang di galeri' : 'Tidak ditayangkan'}</span><button>•••</button></div>}</article>)}</div>
     </section>
   </main>
 }

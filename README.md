@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Tanpa environment variables, aplikasi berjalan dalam **mode demo lokal** menggunakan `localStorage`. Untuk alur produksi, salin `.env.example` menjadi `.env.local`, isi URL/anon key Supabase, dan gunakan UUID event nyata.
+Backend Supabase wajib dikonfigurasi untuk upload, autentikasi, storage, dan live gallery. Salin `.env.example` menjadi `.env.local`, isi URL/anon key Supabase, dan gunakan UUID event nyata. Aplikasi tidak menggunakan `localStorage` atau data dummy sebagai backend produksi.
 
 ## Deploy ke Vercel
 
@@ -32,18 +32,31 @@ Tanpa environment variables, aplikasi berjalan dalam **mode demo lokal** menggun
 
 ## Supabase setup
 
-1. Buka Supabase SQL Editor dan jalankan `supabase/schema.sql`.
+1. Buka Supabase SQL Editor dan jalankan `supabase/schema.sql`. Untuk project lama yang sudah memakai schema sebelumnya, jalankan juga `supabase/migrations/20261027_production_foundation.sql`.
 2. Buat satu row `events`, lalu masukkan UUID-nya ke `VITE_EVENT_ID`.
 3. Buat user admin di Authentication → Users.
 4. Masukkan row `profiles` dengan `user_id` user admin dan `role = 'admin'`.
 5. Aktifkan realtime untuk tabel `media_uploads` (Database → Publications → `supabase_realtime`).
-6. Pastikan bucket `event-media` tersedia; schema membuat bucket dan policy storage-nya.
+6. Pastikan bucket private `event-media` tersedia; schema membuat bucket dan policy storage-nya. Media approved dibaca melalui signed URL.
 
 ## Rute
 
-- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload storage, metadata, dan langsung menayangkan media yang berhasil diunggah.
+- `/` — halaman tamu. Mendukung multi-file JPG/JPEG/PNG/WEBP/MP4, preview, validasi 25 MB/file, upload Storage, metadata `pending`, dan retry/error state.
 - `/live` — layar fullscreen. Hanya media approved, slideshow otomatis, dan menerima perubahan status melalui Supabase Realtime.
-- `/admin` — login Supabase Auth, statistik, filter, pencarian, approve/reject/delete/featured.
+- `/admin` — login Supabase Auth, statistik, filter, pencarian, approve/reject/delete/featured. RLS tetap memvalidasi hak admin di database.
+
+## End-to-end verification
+
+Setelah migration dan environment variables aktif, uji dari dua browser/perangkat:
+
+1. Buka `/` dan pilih satu foto/video.
+2. Isi nama dan pesan, lalu upload.
+3. Pastikan row `media_uploads` berstatus `pending` dan file ada di bucket `event-media`.
+4. Login `/admin`, approve media.
+5. Buka `/live` di perangkat lain; subscription dan polling fallback harus menampilkan media tanpa reload.
+6. Reject/hide/delete dari admin dan pastikan item hilang setelah event update atau resync.
+
+Gunakan DevTools Console untuk log `FILE_SELECTED`, `STORAGE_UPLOAD_SUCCESS`, `DATABASE_INSERT_SUCCESS`, `REALTIME_EVENT_RECEIVED`, dan `MEDIA_RENDERED`. Test terhadap project Supabase/Vercel aktual harus dilakukan setelah credentials tersedia; build lokal saja tidak membuktikan koneksi backend.
 
 ## Keamanan
 
