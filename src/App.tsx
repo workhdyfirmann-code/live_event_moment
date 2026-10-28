@@ -54,6 +54,10 @@ function Brand({ light = false }: { light?: boolean }) {
   return <div className={`brand ${light ? 'brand-light' : ''}`}><span className="brand-mark"><Icon name="heart" size={16}/></span><span><strong>Momen Kita</strong><small>LIVE EVENT GALLERY</small></span></div>
 }
 
+function LiveQr({ value, label }: { value: string; label: string }) {
+  return <div className="live-download-qr"><QRCodeSVG value={value} size={76} bgColor="#ffffff" fgColor="#111111" level="M"/><span>{label}</span></div>
+}
+
 function GuestPage() {
   const input = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
@@ -160,7 +164,7 @@ function LivePage() {
     const t = setInterval(() => setActive(x => (x + 1) % approved.length), 7000)
     return () => clearInterval(t)
   }, [approved.length])
-  if (!approved.length) return <main className="live-page"><div className="live-empty"><Brand light/><h1>Menunggu momen terbaik.</h1><p>Foto yang disetujui akan tampil di sini secara otomatis.</p></div></main>
+  if (!approved.length) return <main className="live-page"><div className="live-empty"><Brand light/><h1>Menunggu momen terbaik.</h1><p>Foto yang disetujui akan tampil di sini secara otomatis.</p></div><LiveQr value={`${window.location.origin}/`} label="SCAN UNTUK UPLOAD"/></main>
   const current = approved[active]
   return <main className="live-page">
     <div className="live-bg" style={{backgroundImage: `url(${current.url})`}}/>
@@ -169,7 +173,7 @@ function LivePage() {
        <div className="live-photo"><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
       <div className="live-copy"><span>MOMEN TERBARU</span><blockquote>“{current.caption}”</blockquote><p>— {current.name}</p></div>
      </section>
-     <div className="live-download-qr"><QRCodeSVG value={current.url} size={76} bgColor="#ffffff" fgColor="#111111" level="M"/><span>SCAN UNTUK SIMPAN</span></div>
+     <LiveQr value={current.url} label="SCAN UNTUK SIMPAN"/>
      <footer className="live-footer"><div>12 OKTOBER 2025 <span/> THE GRAND BALLROOM, JAKARTA</div><div className="live-progress"><i key={active}/></div><small>{active + 1} / {approved.length}</small></footer>
   </main>
 }
