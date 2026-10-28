@@ -6,6 +6,7 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 export const supabase = url && key ? createClient(url, key) : null
 export const EVENT_ID = (import.meta.env.VITE_EVENT_ID as string | undefined)?.trim() || 'demo-event'
 export const STORAGE_BUCKET = 'event-media'
+export const FRAME_BUCKET = 'event-frames'
 export const hasBackend = Boolean(supabase && url && key)
 
 export type Media = {
@@ -25,6 +26,11 @@ export const mediaUrl = async (path: string) => {
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 3600)
   if (error) throw error
   return data.signedUrl
+}
+
+export const framePublicUrl = (path: string) => {
+  if (!supabase || !path) return ''
+  return supabase.storage.from(FRAME_BUCKET).getPublicUrl(path).data.publicUrl
 }
 
 export const diagnostic = (event: string, details: Record<string, unknown> = {}) => console.info(`[MOMEN KITA] ${event}`, details)
