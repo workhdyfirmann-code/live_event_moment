@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { EVENT_ID, STORAGE_BUCKET, diagnostic, diagnosticError, mediaUrl, supabase } from './lib/supabase'
 
 type Status = 'pending' | 'approved' | 'rejected'
@@ -164,11 +165,12 @@ function LivePage() {
   return <main className="live-page">
     <div className="live-bg" style={{backgroundImage: `url(${current.url})`}}/>
     <header className="live-head"><Brand light/><div className="live-label"><i/> LIVE · RAKA & NADINE</div><button onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Fullscreen"><Icon name="expand"/></button></header>
-    <section className="live-stage" key={current.id}>
+     <section className="live-stage" key={current.id}>
        <div className="live-photo"><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
       <div className="live-copy"><span>MOMEN TERBARU</span><blockquote>“{current.caption}”</blockquote><p>— {current.name}</p></div>
-    </section>
-    <footer className="live-footer"><div>12 OKTOBER 2025 <span/> THE GRAND BALLROOM, JAKARTA</div><div className="live-progress"><i key={active}/></div><small>{active + 1} / {approved.length}</small></footer>
+     </section>
+     <div className="live-download-qr"><QRCodeSVG value={current.url} size={76} bgColor="#ffffff" fgColor="#111111" level="M"/><span>SCAN UNTUK SIMPAN</span></div>
+     <footer className="live-footer"><div>12 OKTOBER 2025 <span/> THE GRAND BALLROOM, JAKARTA</div><div className="live-progress"><i key={active}/></div><small>{active + 1} / {approved.length}</small></footer>
   </main>
 }
 
