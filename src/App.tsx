@@ -55,7 +55,7 @@ function Brand({ light = false }: { light?: boolean }) {
 }
 
 function LiveQr({ value, label }: { value: string; label: string }) {
-  return <div className="live-download-qr"><QRCodeSVG value={value} size={110} marginSize={2} bgColor="#ffffff" fgColor="#111111" level="M"/><span>{label}</span></div>
+  return <div className="live-download-qr"><QRCodeSVG value={value} size={150} marginSize={3} bgColor="#ffffff" fgColor="#111111" level="H"/><span>{label}</span></div>
 }
 
 function DownloadPage() {
