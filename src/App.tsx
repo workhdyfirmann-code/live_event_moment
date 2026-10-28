@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { EVENT_ID, FRAME_BUCKET, STORAGE_BUCKET, diagnostic, diagnosticError, framePublicUrl, mediaUrl, supabase } from './lib/supabase'
+import { EVENT_ID, FRAME_BUCKET, STORAGE_BUCKET, diagnostic, diagnosticError, frameSignedUrl, mediaUrl, supabase } from './lib/supabase'
 
 type Status = 'pending' | 'approved' | 'rejected'
 type FrameStyle = 'gold' | 'charcoal' | 'minimal' | 'none'
+type FrameSettings = { style: FrameStyle; url: string; path: string; enabled: boolean; version: number }
 type Media = {
   id: string | number
   storagePath?: string
@@ -18,24 +19,36 @@ type Media = {
 
 const initialMedia: Media[] = []
 
-const fromRow = async (row: any): Promise<Media> => ({ id: row.id, storagePath: row.storage_path, url: await mediaUrl(row.storage_path), name: row.guest_name || 'Tamu', caption: row.caption || 'Momen indah', time: new Date(row.created_at).toLocaleString('id-ID'), type: row.media_type, status: String(row.moderation_status).toLowerCase() as Status, featured: row.is_featured })
+const fromRow = async (row: any): Promise<Media> => ({ id: row.id, storagePath: row.framed_storage_path || row.storage_path, url: await mediaUrl(row.framed_storage_path || row.storage_path), name: row.guest_name || 'Tamu', caption: row.caption || 'Momen indah', time: new Date(row.created_at).toLocaleString('id-ID'), type: row.media_type, status: String(row.moderation_status).toLowerCase() as Status, featured: row.is_featured })
 async function fetchMedia(approvedOnly = false) {
   if (!supabase) throw new Error('Backend belum dikonfigurasi. Isi VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, dan VITE_EVENT_ID di Vercel.')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(EVENT_ID)) throw new Error('VITE_EVENT_ID harus berisi UUID event Supabase yang valid.')
   const query = supabase.from('media_uploads').select('*').eq('event_id', EVENT_ID).order('created_at', { ascending: false })
-  const { data, error } = approvedOnly ? await query.eq('moderation_status', 'approved') : await query
+  const { data, error } = approvedOnly ? await query.eq('moderation_status', 'approved').eq('processing_status', 'completed') : await query
   if (error) throw error
   diagnostic('MEDIA_FETCH_SUCCESS', { eventId: EVENT_ID, count: data?.length || 0, approvedOnly })
   return Promise.all((data || []).map(fromRow))
 }
-async function fetchFrameSettings(): Promise<{ style: FrameStyle; url: string }> {
-  if (!supabase) return { style: 'gold', url: '' }
+async function fetchFrameSettings(): Promise<FrameSettings> {
+  if (!supabase) return { style: 'gold', url: '', path: '', enabled: false, version: 0 }
   const { data, error } = await supabase.from('events').select('settings').eq('id', EVENT_ID).maybeSingle()
   if (error) throw error
   const style = data?.settings?.frame_style
   const framePath = data?.settings?.frame_path || ''
-  return { style: ['gold', 'charcoal', 'minimal', 'none'].includes(style) ? style : 'gold', url: framePublicUrl(framePath) }
+  return { style: ['gold', 'charcoal', 'minimal', 'none'].includes(style) ? style : 'gold', url: framePath ? await frameSignedUrl(framePath) : '', path: framePath, enabled: data?.settings?.frame_enabled === true && Boolean(framePath), version: Number(data?.settings?.frame_version || 0) }
 }
+
+async function composeFramedImage(file: File, frameUrl: string): Promise<Blob> {
+  const [image, frame] = await Promise.all([loadImage(URL.createObjectURL(file)), loadImage(frameUrl)])
+  const canvas = document.createElement('canvas'); canvas.width = frame.naturalWidth || image.naturalWidth; canvas.height = frame.naturalHeight || image.naturalHeight
+  const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Browser tidak mendukung pemrosesan Canvas.')
+  const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
+  const width = image.naturalWidth * scale; const height = image.naturalHeight * scale
+  ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height)
+  ctx.drawImage(frame, 0, 0, canvas.width, canvas.height)
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Gagal membuat hasil foto berb bingkai.')), 'image/png', 0.95))
+}
+function loadImage(src: string): Promise<HTMLImageElement> { return new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error('Gagal memuat foto atau bingkai.')); image.src = src }) }
 
 const Icon = ({ name, size = 20 }: { name: string; size?: number }) => {
   const paths: Record<string, ReactNode> = {
@@ -74,9 +87,9 @@ function DownloadPage() {
   const [error, setError] = useState('')
   useEffect(() => {
     if (!supabase || !mediaId) { setError('Tautan media tidak valid atau Supabase belum dikonfigurasi.'); return }
-    supabase.from('media_uploads').select('storage_path, media_type').eq('id', mediaId).eq('moderation_status', 'approved').eq('is_hidden', false).maybeSingle().then(async ({ data, error: queryError }) => {
+    supabase.from('media_uploads').select('storage_path, framed_storage_path, media_type').eq('id', mediaId).eq('moderation_status', 'approved').eq('is_hidden', false).maybeSingle().then(async ({ data, error: queryError }) => {
       if (queryError || !data) { setError('Media tidak ditemukan atau sudah dihapus.'); return }
-      try { setUrl(await mediaUrl(data.storage_path)); setMediaType(data.media_type) } catch { setError('Media tidak dapat dibuka saat ini.') }
+      try { setUrl(await mediaUrl(data.framed_storage_path || data.storage_path)); setMediaType(data.media_type) } catch { setError('Media tidak dapat dibuka saat ini.') }
     })
   }, [mediaId])
   return <main className="download-page"><Brand/><div className="download-card">{error ? <><h1>Media tidak tersedia</h1><p>{error}</p></> : !url ? <><h1>Menyiapkan media...</h1><p>Mohon tunggu sebentar.</p></> : <>{mediaType === 'video' ? <video src={url} controls playsInline /> : <img src={url} alt="Media acara" />}<a className="primary-button" href={url} download>Download media</a></>}</div></main>
@@ -85,7 +98,7 @@ function DownloadPage() {
 function GuestPage() {
   const input = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
-  const [files, setFiles] = useState<{ file: File; url: string }[]>([])
+  const [files, setFiles] = useState<{ file: File; url: string; framedUrl?: string; framedBlob?: Blob }[]>([])
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
@@ -93,6 +106,7 @@ function GuestPage() {
   const [guestName, setGuestName] = useState('')
   const [caption, setCaption] = useState('')
   const [frameStyle, setFrameStyle] = useState<FrameStyle>('gold')
+  const [frameSettings, setFrameSettings] = useState<FrameSettings>({ style: 'gold', url: '', path: '', enabled: false, version: 0 })
 
   const pick = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || [])
@@ -101,7 +115,9 @@ function GuestPage() {
     const invalid = selected.find(file => !allowed.includes(file.type) || file.size > 25 * 1024 * 1024)
     if (invalid) return setError(`${invalid.name} tidak didukung atau melebihi 25 MB.`)
     setError('')
-    setFiles(current => [...current, ...selected.map(file => ({ file, url: URL.createObjectURL(file) }))])
+    const additions = selected.map(file => ({ file, url: URL.createObjectURL(file) }))
+    setFiles(current => [...current, ...additions])
+    if (frameSettings.enabled && frameSettings.url) additions.forEach(async item => { if (!item.file.type.startsWith('image')) return; try { const blob = await composeFramedImage(item.file, frameSettings.url); setFiles(current => current.map(existing => existing.url === item.url ? { ...existing, framedBlob: blob, framedUrl: URL.createObjectURL(blob) } : existing)) } catch (error) { setError(error instanceof Error ? error.message : 'Gagal menerapkan bingkai.') } })
     event.target.value = ''
   }
 
@@ -109,7 +125,7 @@ function GuestPage() {
   const formatSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
   useEffect(() => { const refresh = () => fetchMedia(true).then(setGallery).catch(err => diagnosticError('GALLERY_FETCH_ERROR', err, { eventId: EVENT_ID })); refresh(); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
-  useEffect(() => { fetchFrameSettings().then(result => setFrameStyle(result.style)).catch(() => undefined) }, [])
+  useEffect(() => { fetchFrameSettings().then(result => { setFrameStyle(result.style); setFrameSettings(result) }).catch(() => undefined) }, [])
 
   const upload = async () => {
     if (!files.length) return input.current?.click()
@@ -121,13 +137,15 @@ function GuestPage() {
     try {
       if (!supabase) throw new Error('Upload belum tersedia karena koneksi Supabase belum dikonfigurasi.')
       for (let i = 0; i < files.length; i++) {
-        const { file } = files[i]; const mediaId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || (file.type === 'video/mp4' ? 'mp4' : 'jpg'); const path = `events/${EVENT_ID}/${mediaId}/original.${extension}`
+        const { file, framedBlob } = files[i]; const mediaId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || (file.type === 'video/mp4' ? 'mp4' : 'jpg'); const path = `events/${EVENT_ID}/${mediaId}/original.${extension}`
         diagnostic('FILE_SELECTED', { mediaId, eventId: EVENT_ID, mediaType: file.type, fileSize: file.size })
         diagnostic('UPLOAD_STARTED', { mediaId, eventId: EVENT_ID })
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
         diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
-        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'approved', approved_at: new Date().toISOString() })
+        let framedPath: string | null = null
+        if (framedBlob) { framedPath = `events/${EVENT_ID}/${mediaId}/framed.png`; const framedUpload = await supabase.storage.from(STORAGE_BUCKET).upload(framedPath, framedBlob, { contentType: 'image/png', upsert: false }); if (framedUpload.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw framedUpload.error } }
+        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, original_storage_path: path, framed_storage_path: framedPath, frame_template_path: framedPath ? frameSettings.path : null, frame_template_version: framedPath ? frameSettings.version : null, processing_status: 'completed', processed_at: framedPath ? new Date().toISOString() : null, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'approved', approved_at: new Date().toISOString() })
         if (metadata.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw metadata.error }
         diagnostic('DATABASE_INSERT_SUCCESS', { mediaId, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
@@ -157,7 +175,7 @@ function GuestPage() {
          <input ref={input} className="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={pick}/>
          <input ref={cameraInput} className="file-input" type="file" accept="image/*" capture="environment" onChange={pick}/>
          {!files.length ? <div className="upload-options"><button className="dropzone" onClick={() => input.current?.click()}><span className="upload-icon"><Icon name="upload" size={25}/></span><strong>Pilih dari galeri</strong><small>JPG, PNG, WEBP atau MP4</small></button><button className="camera-button" type="button" onClick={() => cameraInput.current?.click()}><span className="upload-icon"><Icon name="camera" size={22}/></span><strong>Buka kamera HP</strong><small>Ambil foto langsung dengan kamera</small></button></div> :
-            <><div className="batch-summary"><strong>{files.length} media dipilih</strong><span>Total {formatSize(totalSize)} · Maks. 10 file</span></div><div className="previews">{files.map(({file, url}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <img src={url} alt="Preview"/> : <video src={url}/>}<button onClick={() => { URL.revokeObjectURL(url); setFiles(x => x.filter(f => f.url !== url)) }}><Icon name="x" size={14}/></button><small>{file.name}</small></div>)}</div><div className="add-media-actions"><button type="button" onClick={() => input.current?.click()}><Icon name="upload" size={15}/> Tambah dari galeri</button><button type="button" onClick={() => cameraInput.current?.click()}><Icon name="camera" size={15}/> Tambah dari kamera</button></div></>}
+            <><div className="batch-summary"><strong>{files.length} media dipilih</strong><span>Total {formatSize(totalSize)} · Maks. 10 file</span></div><div className="previews">{files.map(({file, url, framedUrl}) => <div className="preview" key={url}>{file.type.startsWith('image') ? <div className="preview-stack"><img src={url} alt="Preview asli"/>{framedUrl && <img className="preview-frame" src={framedUrl} alt="Preview bingkai"/>}</div> : <video src={url}/>}<button onClick={() => { URL.revokeObjectURL(url); if (framedUrl) URL.revokeObjectURL(framedUrl); setFiles(x => x.filter(f => f.url !== url)) }}><Icon name="x" size={14}/></button><small>{framedUrl ? 'Bingkai diterapkan · ' : ''}{file.name}</small></div>)}</div><div className="add-media-actions"><button type="button" onClick={() => input.current?.click()}><Icon name="upload" size={15}/> Tambah dari galeri</button><button type="button" onClick={() => cameraInput.current?.click()}><Icon name="camera" size={15}/> Tambah dari kamera</button></div></>}
         {error && <p className="error">{error}</p>}
         {progress > 0 && !done && <div className="progress"><span style={{width: `${progress}%`}}/><small>Mengunggah... {progress}%</small></div>}
           {done ? <div className="success"><Icon name="check"/><span><strong>Berhasil tayang!</strong><small>Media kamu langsung masuk ke galeri live.</small></span></div> :
@@ -259,7 +277,7 @@ function AdminPage() {
     const uploaded = await supabase.storage.from(FRAME_BUCKET).upload(path, file, { contentType: file.type, upsert: true })
     if (uploaded.error) return alert(uploaded.error.message)
     const { data } = await supabase.from('events').select('settings').eq('id', EVENT_ID).single()
-    const settings = { ...(data?.settings || {}), frame_path: path }
+    const settings = { ...(data?.settings || {}), frame_path: path, frame_enabled: true, frame_version: Number(data?.settings?.frame_version || 0) + 1 }
     const updated = await supabase.from('events').update({ settings }).eq('id', EVENT_ID)
     if (updated.error) return alert(updated.error.message)
     setFrameUrl(framePublicUrl(path)); alert('Bingkai berhasil diperbarui.')

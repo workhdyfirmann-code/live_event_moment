@@ -33,5 +33,12 @@ export const framePublicUrl = (path: string) => {
   return supabase.storage.from(FRAME_BUCKET).getPublicUrl(path).data.publicUrl
 }
 
+export const frameSignedUrl = async (path: string) => {
+  if (!supabase || !path) return ''
+  const { data, error } = await supabase.storage.from(FRAME_BUCKET).createSignedUrl(path, 3600)
+  if (error) throw error
+  return data.signedUrl
+}
+
 export const diagnostic = (event: string, details: Record<string, unknown> = {}) => console.info(`[MOMEN KITA] ${event}`, details)
 export const diagnosticError = (event: string, error: unknown, details: Record<string, unknown> = {}) => console.error(`[MOMEN KITA] ${event}`, { ...details, error: error instanceof Error ? error.message : String(error) })
