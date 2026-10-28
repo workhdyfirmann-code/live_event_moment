@@ -55,7 +55,22 @@ function Brand({ light = false }: { light?: boolean }) {
 }
 
 function LiveQr({ value, label }: { value: string; label: string }) {
-  return <div className="live-download-qr"><QRCodeSVG value={value} size={76} bgColor="#ffffff" fgColor="#111111" level="M"/><span>{label}</span></div>
+  return <div className="live-download-qr"><QRCodeSVG value={value} size={110} marginSize={2} bgColor="#ffffff" fgColor="#111111" level="M"/><span>{label}</span></div>
+}
+
+function DownloadPage() {
+  const mediaId = window.location.pathname.split('/').filter(Boolean).pop()
+  const [url, setUrl] = useState('')
+  const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!supabase || !mediaId) { setError('Tautan media tidak valid atau Supabase belum dikonfigurasi.'); return }
+    supabase.from('media_uploads').select('storage_path, media_type').eq('id', mediaId).eq('moderation_status', 'approved').eq('is_hidden', false).maybeSingle().then(async ({ data, error: queryError }) => {
+      if (queryError || !data) { setError('Media tidak ditemukan atau sudah dihapus.'); return }
+      try { setUrl(await mediaUrl(data.storage_path)); setMediaType(data.media_type) } catch { setError('Media tidak dapat dibuka saat ini.') }
+    })
+  }, [mediaId])
+  return <main className="download-page"><Brand/><div className="download-card">{error ? <><h1>Media tidak tersedia</h1><p>{error}</p></> : !url ? <><h1>Menyiapkan media...</h1><p>Mohon tunggu sebentar.</p></> : <>{mediaType === 'video' ? <video src={url} controls playsInline /> : <img src={url} alt="Media acara" />}<a className="primary-button" href={url} download>Download media</a></>}</div></main>
 }
 
 function GuestPage() {
@@ -173,7 +188,7 @@ function LivePage() {
        <div className="live-photo"><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
       <div className="live-copy"><span>MOMEN TERBARU</span><blockquote>“{current.caption}”</blockquote><p>— {current.name}</p></div>
      </section>
-     <LiveQr value={current.url} label="SCAN UNTUK SIMPAN"/>
+     <LiveQr value={`${window.location.origin}/download/${current.id}`} label="SCAN UNTUK SIMPAN"/>
      <footer className="live-footer"><div>12 OKTOBER 2025 <span/> THE GRAND BALLROOM, JAKARTA</div><div className="live-progress"><i key={active}/></div><small>{active + 1} / {approved.length}</small></footer>
   </main>
 }
@@ -226,5 +241,5 @@ function AdminPage() {
 
 export default function App() {
   const path = window.location.pathname
-  return path.startsWith('/admin') ? <AdminPage/> : path.startsWith('/live') ? <LivePage/> : <GuestPage/>
+  return path.startsWith('/admin') ? <AdminPage/> : path.startsWith('/live') ? <LivePage/> : path.startsWith('/download/') ? <DownloadPage/> : <GuestPage/>
 }
