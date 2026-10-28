@@ -22,3 +22,9 @@ create policy "admins update event frames"
 on storage.objects for update to authenticated
 using (bucket_id = 'event-frames' and exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.role in ('admin', 'super_admin')))
 with check (bucket_id = 'event-frames' and exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.role in ('admin', 'super_admin')));
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'events') then
+    alter publication supabase_realtime add table public.events;
+  end if;
+end $$;

@@ -76,4 +76,5 @@ create policy "admins can delete event media" on storage.objects for delete usin
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'media_uploads') then alter publication supabase_realtime add table public.media_uploads; end if;
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'event_display_state') then alter publication supabase_realtime add table public.event_display_state; end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'events') then alter publication supabase_realtime add table public.events; end if;
 end $$;

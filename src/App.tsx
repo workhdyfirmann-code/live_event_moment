@@ -186,7 +186,16 @@ function LivePage() {
     if (supabase) { const channel = supabase.channel(`live-gallery-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, payload => { diagnostic('REALTIME_EVENT_RECEIVED', { mediaId: (payload.new as any)?.id || (payload.old as any)?.id, eventId: EVENT_ID, event: payload.eventType }); load() }).subscribe(status => diagnostic(status === 'SUBSCRIBED' ? 'REALTIME_CONNECTED' : 'REALTIME_STATUS', { eventId: EVENT_ID, status })); return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
     return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load) }
   }, [])
-  useEffect(() => { const loadFrame = () => fetchFrameSettings().then(result => { setFrameStyle(result.style); setFrameUrl(result.url) }).catch(err => diagnosticError('FRAME_SETTINGS_ERROR', err, { eventId: EVENT_ID })); loadFrame(); const timer = window.setInterval(loadFrame, 10000); return () => window.clearInterval(timer) }, [])
+  useEffect(() => {
+    const loadFrame = () => fetchFrameSettings().then(result => { setFrameStyle(result.style); setFrameUrl(result.url) }).catch(err => diagnosticError('FRAME_SETTINGS_ERROR', err, { eventId: EVENT_ID }))
+    loadFrame()
+    const timer = window.setInterval(loadFrame, 3000)
+    if (supabase) {
+      const channel = supabase.channel(`event-settings-${EVENT_ID}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events', filter: `id=eq.${EVENT_ID}` }, loadFrame).subscribe()
+      return () => { window.clearInterval(timer); supabase.removeChannel(channel) }
+    }
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => { if (active >= approved.length) setActive(0) }, [approved.length, active])
   useEffect(() => {
     if (approved.length < 2) return
