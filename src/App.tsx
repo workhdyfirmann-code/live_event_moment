@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { EVENT_ID, STORAGE_BUCKET, diagnostic, diagnosticError, mediaUrl, supabase } from './lib/supabase'
 
 type Status = 'pending' | 'approved' | 'rejected'
+type FrameStyle = 'gold' | 'charcoal' | 'minimal' | 'none'
 type Media = {
   id: string | number
   storagePath?: string
@@ -26,6 +27,13 @@ async function fetchMedia(approvedOnly = false) {
   if (error) throw error
   diagnostic('MEDIA_FETCH_SUCCESS', { eventId: EVENT_ID, count: data?.length || 0, approvedOnly })
   return Promise.all((data || []).map(fromRow))
+}
+async function fetchFrameStyle(): Promise<FrameStyle> {
+  if (!supabase) return 'gold'
+  const { data, error } = await supabase.from('events').select('settings').eq('id', EVENT_ID).maybeSingle()
+  if (error) throw error
+  const style = data?.settings?.frame_style
+  return ['gold', 'charcoal', 'minimal', 'none'].includes(style) ? style : 'gold'
 }
 
 const Icon = ({ name, size = 20 }: { name: string; size?: number }) => {
@@ -83,6 +91,7 @@ function GuestPage() {
   const [gallery, setGallery] = useState<Media[]>([])
   const [guestName, setGuestName] = useState('')
   const [caption, setCaption] = useState('')
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>('gold')
 
   const pick = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || [])
@@ -99,6 +108,7 @@ function GuestPage() {
   const formatSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
   useEffect(() => { const refresh = () => fetchMedia(true).then(setGallery).catch(err => diagnosticError('GALLERY_FETCH_ERROR', err, { eventId: EVENT_ID })); refresh(); window.addEventListener('momen-media-changed', refresh); return () => window.removeEventListener('momen-media-changed', refresh) }, [])
+  useEffect(() => { fetchFrameStyle().then(setFrameStyle).catch(() => undefined) }, [])
 
   const upload = async () => {
     if (!files.length) return input.current?.click()
@@ -156,7 +166,7 @@ function GuestPage() {
     </section>
     <section className="public-gallery" id="gallery">
       <div className="section-title"><div><span>MOMEN PILIHAN</span><h2>Dari mereka, untuk kita.</h2></div><a href="/live">Lihat layar live <Icon name="chevron" size={15}/></a></div>
-       <div className="masonry">{gallery.map((item, i) => <figure key={item.id} className={`tile tile-${i % 3}`}><img src={item.url} alt={item.caption}/><figcaption><strong>{item.name}</strong><span>{item.caption}</span></figcaption></figure>)}</div>
+        <div className="masonry">{gallery.map((item, i) => <figure key={item.id} className={`tile frame-${frameStyle} tile-${i % 3}`}><img src={item.url} alt={item.caption}/><figcaption><strong>{item.name}</strong><span>{item.caption}</span></figcaption></figure>)}</div>
     </section>
     <footer><Brand/><span>Dibuat untuk mengabadikan setiap cerita.</span><small>© 2025 Momen Kita</small></footer>
   </main>
@@ -165,6 +175,7 @@ function GuestPage() {
 function LivePage() {
   const [active, setActive] = useState(0)
   const [approved, setApproved] = useState<Media[]>([])
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>('gold')
   useEffect(() => {
     const load = () => fetchMedia(true).then(items => { setApproved(items); items.forEach(item => diagnostic('MEDIA_ADDED_TO_SLIDESHOW', { mediaId: item.id, eventId: EVENT_ID })) }).catch(err => diagnosticError('REALTIME_ERROR', err, { eventId: EVENT_ID }))
     load(); window.addEventListener('momen-media-changed', load)
@@ -173,6 +184,7 @@ function LivePage() {
     if (supabase) { const channel = supabase.channel(`live-gallery-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, payload => { diagnostic('REALTIME_EVENT_RECEIVED', { mediaId: (payload.new as any)?.id || (payload.old as any)?.id, eventId: EVENT_ID, event: payload.eventType }); load() }).subscribe(status => diagnostic(status === 'SUBSCRIBED' ? 'REALTIME_CONNECTED' : 'REALTIME_STATUS', { eventId: EVENT_ID, status })); return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load); supabase.removeChannel(channel) } }
     return () => { window.clearInterval(poll); window.removeEventListener('momen-media-changed', load) }
   }, [])
+  useEffect(() => { const loadFrame = () => fetchFrameStyle().then(setFrameStyle).catch(err => diagnosticError('FRAME_SETTINGS_ERROR', err, { eventId: EVENT_ID })); loadFrame(); const timer = window.setInterval(loadFrame, 10000); return () => window.clearInterval(timer) }, [])
   useEffect(() => { if (active >= approved.length) setActive(0) }, [approved.length, active])
   useEffect(() => {
     if (approved.length < 2) return
@@ -185,7 +197,7 @@ function LivePage() {
     <div className="live-bg" style={{backgroundImage: `url(${current.url})`}}/>
     <header className="live-head"><Brand light/><div className="live-label"><i/> LIVE · RAKA & NADINE</div><button onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Fullscreen"><Icon name="expand"/></button></header>
      <section className="live-stage" key={current.id}>
-       <div className="live-photo"><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
+       <div className={`live-photo frame-${frameStyle}`}><img src={current.url} alt={current.caption} onLoad={() => diagnostic('MEDIA_RENDERED', { mediaId: current.id, eventId: EVENT_ID })} onError={() => diagnosticError('MEDIA_RENDER_ERROR', new Error('Media URL gagal dimuat'), { mediaId: current.id, eventId: EVENT_ID })}/><span className="corner tl"/><span className="corner br"/></div>
       <div className="live-copy"><span>MOMEN TERBARU</span><blockquote>“{current.caption}”</blockquote><p>— {current.name}</p></div>
      </section>
      <LiveQr value={`${window.location.origin}/download/${current.id}`} label="SCAN UNTUK SIMPAN"/>
@@ -196,6 +208,7 @@ function LivePage() {
 function AdminPage() {
   const [logged, setLogged] = useState(false)
   const [media, setMedia] = useState<Media[]>([])
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>('gold')
   const [filter, setFilter] = useState<'All' | Status>('All')
   const [query, setQuery] = useState('')
   const list = useMemo(() => media.filter(x => (filter === 'All' || x.status === filter) && x.name.toLowerCase().includes(query.toLowerCase())), [media, filter, query])
@@ -223,6 +236,8 @@ function AdminPage() {
     }
   }
   useEffect(() => { if (!supabase || !logged) return; const load = () => fetchMedia().then(setMedia).catch(err => diagnosticError('ADMIN_FETCH_ERROR', err, { eventId: EVENT_ID })); load(); const channel = supabase.channel(`admin-media-${EVENT_ID}`).on('postgres_changes', { event: '*', schema: 'public', table: 'media_uploads', filter: `event_id=eq.${EVENT_ID}` }, load).subscribe(); return () => { supabase.removeChannel(channel) } }, [logged])
+  useEffect(() => { if (logged) fetchFrameStyle().then(setFrameStyle).catch(() => undefined) }, [logged])
+  const saveFrameStyle = async (style: FrameStyle) => { if (!supabase) return; const { data } = await supabase.from('events').select('settings').eq('id', EVENT_ID).single(); const { error } = await supabase.from('events').update({ settings: { ...(data?.settings || {}), frame_style: style } }).eq('id', EVENT_ID); if (error) return alert(error.message); setFrameStyle(style) }
   const moderate = async (id: string | number, status: Status) => { if (!supabase || typeof id !== 'string') return; const { error } = await supabase.from('media_uploads').update({ moderation_status: status, approved_at: status === 'approved' ? new Date().toISOString() : null }).eq('id', id); if (error) diagnosticError('MODERATION_ERROR', error, { mediaId: id, eventId: EVENT_ID }) }
    if (!logged) return <main className="login-page"><div className="login-visual"><div className="login-image"/><div className="login-overlay"><Brand light/><blockquote>“Setiap momen layak<br/>untuk <em>diabadikan.</em>”</blockquote><p>Kelola cerita indah dari para tamu dalam satu tempat.</p></div></div><div className="login-panel"><div className="login-box"><span className="login-kicker">ADMIN PORTAL</span><h1>Selamat datang kembali.</h1><p>Masuk untuk mengelola galeri acaramu.</p><label>Email<input type="email" placeholder="admin@example.com"/></label><label>Password<div className="password"><input type="password" placeholder="Password"/></div></label><div className="login-row"><label className="check"><input type="checkbox" defaultChecked/> Ingat saya</label><button>Lupa password?</button></div><button className="primary-button" onClick={async () => { if (!supabase) return alert('Supabase belum dikonfigurasi.'); const email = (document.querySelector('input[type=email]') as HTMLInputElement).value; const password = (document.querySelector('input[type=password]') as HTMLInputElement).value; const result = await supabase.auth.signInWithPassword({ email, password }); if (result.error) return alert(result.error.message); setLogged(true) }}>Masuk ke dashboard <Icon name="chevron" size={17}/></button><small className="demo-note">Login menggunakan akun Supabase Auth.</small></div></div></main>
 
@@ -232,9 +247,9 @@ function AdminPage() {
     <section className="dashboard">
       <header><div><span>DASHBOARD</span><h1>Selamat sore, Admin.</h1><p>Ini yang terjadi di acaramu hari ini.</p></div><a href="/live"><i/> Buka Live Display <Icon name="chevron" size={16}/></a></header>
       <div className="stats"><article><span><Icon name="image"/></span><div><small>Total Unggahan</small><strong>{media.length}</strong><em>+6 dalam 1 jam</em></div></article><article><span><Icon name="users"/></span><div><small>Kontributor</small><strong>42</strong><em>+8 tamu baru</em></div></article><article><span><Icon name="image"/></span><div><small>Total Foto</small><strong>{media.filter(x=>x.type==='photo').length}</strong><em>86% dari media</em></div></article><article><span><Icon name="play"/></span><div><small>Total Video</small><strong>12</strong><em>14% dari media</em></div></article></div>
-      <div className="moderation-head"><div><h2>Moderasi Media</h2><p>Tinjau dan kelola unggahan dari para tamu.</p></div><label className="auto"><span><strong>Auto-approve</strong><small>Media langsung tayang</small></span><input type="checkbox"/><i/></label></div>
+       <div className="moderation-head"><div><h2>Moderasi Media</h2><p>Tinjau dan kelola unggahan dari para tamu.</p></div><div className="frame-setting"><strong>Bingkai live</strong><select value={frameStyle} onChange={e => saveFrameStyle(e.target.value as FrameStyle)}><option value="gold">Gold Elegan</option><option value="charcoal">Charcoal</option><option value="minimal">Minimal</option><option value="none">Tanpa Bingkai</option></select></div><label className="auto"><span><strong>Auto-approve</strong><small>Media langsung tayang</small></span><input type="checkbox"/><i/></label></div>
       <div className="toolbar"><div className="tabs">{(['all','pending','approved','rejected'] as const).map(x => <button className={filter === (x === 'all' ? 'All' : x) ? 'active' : ''} onClick={() => setFilter(x === 'all' ? 'All' : x)} key={x}>{x === 'all' ? 'Semua' : x} <span>{x === 'all' ? media.length : counts[x]}</span></button>)}</div><label className="search"><Icon name="search" size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari nama tamu..."/></label></div>
-       <div className="media-grid">{list.map(item => <article className="media-card" key={item.id}><div className="media-image">{item.type === 'video' ? <video src={item.url} controls /> : <img src={item.url} alt={item.caption}/>}<span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>{item.featured && <span className="featured"><Icon name="star" size={12}/> Featured</span>}<div className="card-actions"><button title="Feature" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').update({ is_featured: !item.featured }).eq('id', item.id); update(item.id, {featured: !item.featured}) }}><Icon name="star" size={16}/></button><button title="Delete" onClick={() => deleteMedia(item)}><Icon name="trash" size={16}/></button></div></div><div className="media-info"><strong>{item.name}</strong><p>“{item.caption}”</p><small>{item.time}</small></div>{item.status === 'pending' ? <div className="review-actions"><button onClick={() => moderate(item.id,'rejected')}><Icon name="x" size={16}/> Tolak</button><button onClick={() => moderate(item.id,'approved')}><Icon name="check" size={16}/> Setujui</button></div> : <div className="approved-row"><span><Icon name={item.status === 'approved' ? 'check' : 'x'} size={15}/>{item.status === 'approved' ? 'Tayang di galeri' : 'Tidak ditayangkan'}</span><button>•••</button></div>}</article>)}</div>
+       <div className="media-grid">{list.map(item => <article className="media-card" key={item.id}><div className={`media-image frame-${frameStyle}`}>{item.type === 'video' ? <video src={item.url} controls /> : <img src={item.url} alt={item.caption}/>}<span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>{item.featured && <span className="featured"><Icon name="star" size={12}/> Featured</span>}<div className="card-actions"><button title="Feature" onClick={async () => { if (supabase && typeof item.id === 'string') await supabase.from('media_uploads').update({ is_featured: !item.featured }).eq('id', item.id); update(item.id, {featured: !item.featured}) }}><Icon name="star" size={16}/></button><button title="Delete" onClick={() => deleteMedia(item)}><Icon name="trash" size={16}/></button></div></div><div className="media-info"><strong>{item.name}</strong><p>“{item.caption}”</p><small>{item.time}</small></div>{item.status === 'pending' ? <div className="review-actions"><button onClick={() => moderate(item.id,'rejected')}><Icon name="x" size={16}/> Tolak</button><button onClick={() => moderate(item.id,'approved')}><Icon name="check" size={16}/> Setujui</button></div> : <div className="approved-row"><span><Icon name={item.status === 'approved' ? 'check' : 'x'} size={15}/>{item.status === 'approved' ? 'Tayang di galeri' : 'Tidak ditayangkan'}</span><button>•••</button></div>}</article>)}</div>
     </section>
   </main>
 }
