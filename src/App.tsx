@@ -57,7 +57,7 @@ async function composeFramedImage(file: File, frameUrl: string): Promise<Blob> {
   ctx.drawImage(frame, 0, 0, canvas.width, canvas.height)
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Gagal membuat hasil foto berb bingkai.')), 'image/png', 0.95))
 }
-function loadImage(src: string): Promise<HTMLImageElement> { return new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error('Gagal memuat foto atau bingkai.')); image.src = src }) }
+function loadImage(src: string): Promise<HTMLImageElement> { return new Promise((resolve, reject) => { const image = new Image(); image.crossOrigin = 'anonymous'; image.onload = () => resolve(image); image.onerror = () => reject(new Error('Gagal memuat foto atau bingkai. Pastikan bucket event-frames mengizinkan pembacaan publik.')); image.src = src }) }
 
 const Icon = ({ name, size = 20 }: { name: string; size?: number }) => {
   const paths: Record<string, ReactNode> = {
@@ -149,16 +149,25 @@ function GuestPage() {
     setDone(false); setProgress(8); setError('')
     try {
       if (!supabase) throw new Error('Upload belum tersedia karena koneksi Supabase belum dikonfigurasi.')
+      const activeFrame = await fetchFrameSettings()
+      setFrameSettings(activeFrame)
       for (let i = 0; i < files.length; i++) {
-        const { file, framedBlob } = files[i]; const mediaId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || (file.type === 'video/mp4' ? 'mp4' : 'jpg'); const path = `events/${EVENT_ID}/${mediaId}/original.${extension}`
+        const { file } = files[i]; const mediaId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || (file.type === 'video/mp4' ? 'mp4' : 'jpg'); const path = `events/${EVENT_ID}/${mediaId}/original.${extension}`
         diagnostic('FILE_SELECTED', { mediaId, eventId: EVENT_ID, mediaType: file.type, fileSize: file.size })
         diagnostic('UPLOAD_STARTED', { mediaId, eventId: EVENT_ID })
         const uploaded = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { contentType: file.type, upsert: false })
         if (uploaded.error) throw uploaded.error
         diagnostic('STORAGE_UPLOAD_SUCCESS', { mediaId, eventId: EVENT_ID, storagePath: path })
         let framedPath: string | null = null
-        if (framedBlob) { framedPath = `events/${EVENT_ID}/${mediaId}/framed.png`; const framedUpload = await supabase.storage.from(STORAGE_BUCKET).upload(framedPath, framedBlob, { contentType: 'image/png', upsert: false }); if (framedUpload.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw framedUpload.error } }
-        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, original_storage_path: path, framed_storage_path: framedPath, frame_template_path: framedPath ? frameSettings.path : null, frame_template_version: framedPath ? frameSettings.version : null, processing_status: 'completed', processed_at: framedPath ? new Date().toISOString() : null, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'approved', approved_at: new Date().toISOString() })
+        let framedBlob: Blob | null = null
+        if (activeFrame.enabled && file.type.startsWith('image')) {
+          if (!activeFrame.url) throw new Error('Bingkai aktif tidak dapat dimuat. Upload ulang bingkai dari Event Settings.')
+          framedBlob = await composeFramedImage(file, activeFrame.url)
+          framedPath = `events/${EVENT_ID}/${mediaId}/framed.png`
+          const framedUpload = await supabase.storage.from(STORAGE_BUCKET).upload(framedPath, framedBlob, { contentType: 'image/png', upsert: false })
+          if (framedUpload.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw framedUpload.error }
+        }
+        const metadata = await supabase.from('media_uploads').insert({ id: mediaId, event_id: EVENT_ID, guest_name: guestName.trim(), caption: caption.trim(), storage_path: path, original_storage_path: path, framed_storage_path: framedPath, frame_template_path: framedPath ? activeFrame.path : null, frame_template_version: framedPath ? activeFrame.version : null, processing_status: 'completed', processed_at: framedPath || file.type.startsWith('video') ? new Date().toISOString() : null, media_type: file.type.startsWith('video') ? 'video' : 'image', mime_type: file.type, file_size: file.size, moderation_status: 'approved', approved_at: new Date().toISOString() })
         if (metadata.error) { await supabase.storage.from(STORAGE_BUCKET).remove([path]); throw metadata.error }
         diagnostic('DATABASE_INSERT_SUCCESS', { mediaId, eventId: EVENT_ID })
         setProgress(Math.round(((i + 1) / files.length) * 100))
