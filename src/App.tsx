@@ -92,16 +92,19 @@ function LiveQr({ value, label }: { value: string; label: string }) {
 function DownloadPage() {
   const mediaId = window.location.pathname.split('/').filter(Boolean).pop()
   const [url, setUrl] = useState('')
+  const [downloadPath, setDownloadPath] = useState('')
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
   const [error, setError] = useState('')
+  const [downloading, setDownloading] = useState(false)
   useEffect(() => {
     if (!supabase || !mediaId) { setError('Tautan media tidak valid atau Supabase belum dikonfigurasi.'); return }
     supabase.from('media_uploads').select('storage_path, framed_storage_path, media_type').eq('id', mediaId).eq('moderation_status', 'approved').eq('is_hidden', false).maybeSingle().then(async ({ data, error: queryError }) => {
       if (queryError || !data) { setError('Media tidak ditemukan atau sudah dihapus.'); return }
-      try { setUrl(await mediaUrl(data.framed_storage_path || data.storage_path)); setMediaType(data.media_type) } catch { setError('Media tidak dapat dibuka saat ini.') }
+      try { const path = data.framed_storage_path || data.storage_path; setDownloadPath(path); setUrl(await mediaUrl(path)); setMediaType(data.media_type) } catch { setError('Media tidak dapat dibuka saat ini.') }
     })
   }, [mediaId])
-  return <main className="download-page"><Brand/><div className="download-card">{error ? <><h1>Media tidak tersedia</h1><p>{error}</p></> : !url ? <><h1>Menyiapkan media...</h1><p>Mohon tunggu sebentar.</p></> : <>{mediaType === 'video' ? <video src={url} controls playsInline /> : <img src={url} alt="Media acara" />}<a className="primary-button" href={url} download>Download media</a></>}</div></main>
+  const download = async () => { if (!url || !downloadPath || downloading) return; setDownloading(true); try { const response = await fetch(url); if (!response.ok) throw new Error('File tidak dapat diunduh.'); const blob = await response.blob(); const objectUrl = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = objectUrl; anchor.download = `momen-kita-${mediaId}.${mediaType === 'video' ? 'mp4' : 'png'}`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(objectUrl) } catch { window.open(url, '_blank', 'noopener,noreferrer') } finally { setDownloading(false) } }
+  return <main className="download-page"><Brand/><div className="download-card">{error ? <><h1>Media tidak tersedia</h1><p>{error}</p></> : !url ? <><h1>Menyiapkan media...</h1><p>Mohon tunggu sebentar.</p></> : <>{mediaType === 'video' ? <video src={url} controls playsInline /> : <img src={url} alt="Media acara dengan bingkai" />}<p className="download-note">{downloadPath.includes('/framed.') ? 'Foto dengan bingkai acara' : 'Foto original — bingkai belum tersedia untuk media ini'}</p><button className="primary-button" onClick={download}>{downloading ? 'Menyiapkan download...' : 'Download media'}</button></>}</div></main>
 }
 
 function GuestPage() {
